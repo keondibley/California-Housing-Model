@@ -1,1 +1,1 @@
-This project follows the creation of a Linear Regression model for California housing data, created in R. 
+This project follows the creation of a Linear Regression model for California housing data, created in R. There are 4 steps to this project, along with a summary of results and findings. The guidelines for what is included in each step can be found in the guidelines files. To summarize, we first performed Exploratory Data Analysis, then made various regression models, and finally, tried to reduce the number of parameters using Principal Component Analysis. 
