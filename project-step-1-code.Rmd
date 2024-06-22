@@ -1,0 +1,251 @@
+---
+title: "California Housing Data Analysis"
+author: "Lucy Zhao & Keon Dibley"
+date: "2023-10-22"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include = FALSE}
+# default code chunk options
+knitr::opts_chunk$set(echo = F,
+                      results = 'markup',
+                      message = F, 
+                      warning = F,
+                      fig.width = 5,
+                      fig.height = 5,
+                      fig.align = 'center') 
+
+# load packages
+library(skimr)
+library(utils)
+library(base)
+library(dplyr)
+library(graphics)
+
+```
+
+Dataset: [California Housing Prices Data
+Source: Kaggle](https://www.kaggle.com/datasets/fedesoriano/california-housing-prices-data-extra-features)
+
+The data pertains to the houses found in a given California district and some summary stats about them based on the 1990 census data.
+
+An observational unit in this dataset is a block of houses
+
+
+Variables:
+
+   - Median House Value: Median house value for households within a block (measured in US Dollars) [$]
+   
+   - Median Income: Median income for households within a block of houses (measured in tens of thousands of US Dollars) [10k$]
+   
+   - Median Age: Median age of a house within a block; a lower number is a newer building [years]
+   
+   - Total Rooms: Total number of rooms within a block
+   
+   - Total Bedrooms: Total number of bedrooms within a block
+   
+   - Population: Total number of people residing within a block
+   
+   - Households: Total number of households, a group of people residing within a home unit, for a block
+   
+   - Latitude: A measure of how far north a house is; a higher value is farther north [°]
+   
+   - Longitude: A measure of how far west a house is; a higher value is farther west [°]
+   
+   - Distance to coast: Distance to the nearest coast point [m]
+   
+   - Distance to Los Angeles: Distance to the centre of Los Angeles [m]
+   
+  - Distance to San Diego: Distance to the centre of San Diego [m]
+  
+  - Distance to San Jose: Distance to the centre of San Jose [m]
+  
+  - Distance to San Francisco: Distance to the centre of San Francisco [m]
+  
+  - North South CA: Decides whether a block is in Northern or Southern California, based on the northern border of San Luis Obispo County
+  
+  - Near Center of Top 4 Big City: Decides how far a block is from the center of its closest big city (SF, LA, SD, SJ): close, somewhat close, somewhat far, or far. 
+  
+
+```{r, echo=F}
+# read in dataset
+california_housing <- read.csv("C:/Users/Keon School/Downloads/archive/California_Houses.csv")
+```
+
+```{r, echo=F}
+# north_south_CA
+num <- rep(35.7911,20640)
+helper_func1 <- function(x){
+  result <- x < num
+  for (i in 1:20640){
+    if (result[i] == TRUE){
+      result[i] <- 'SOCAL'
+      
+    }
+    else{
+      result[i] = 'NORCAL'
+    }
+  }
+  return(result)
+}
+
+# near_top4_big_city
+min_dis <- function(x1,x2,x3,x4){
+  x <- rep(0,20640)
+  for (i in 1:20640){
+    x[i] <- min(x1[i],x2[i],x3[i],x4[i])
+  }
+  return(x)
+}
+min_distance <-min_dis(california_housing$Distance_to_SanDiego,
+                       california_housing$Distance_to_LA,
+                       california_housing$Distance_to_SanFrancisco,
+                       california_housing$Distance_to_SanJose)
+helper_func2 <- function(x){
+  for (i in 1:20640){
+    if (x[i] <= 17000){
+      x[i] <- "close"
+    }
+    else if (x[i]  <= 30000){
+      x[i] <- "somewhat close"
+      }
+    else if (x[i] <= 60000){
+      x[i] <- "somewhat far"
+      }
+    else{
+      x[i] <- "far"
+      }
+  }
+  return(x)
+}
+
+# add two categorical variables 
+california_housing <- mutate(.data = california_housing, north_south_CA = helper_func1(Latitude))
+california_housing <- mutate(.data = california_housing, near_top4_big_city = helper_func2(min_distance))
+```
+
+```{r, echo=F}
+# randomly pick 500 observations
+set.seed(1)
+california_housing <- sample_n(california_housing, 500)
+```
+```{r, echo=F, results='hide'}
+# Median_House_value
+summary(california_housing)
+```
+Individual Distributions:
+```{r, echo=F, fig.width=9, fig.height=4}
+
+op4 <- par(mfrow=c(1, 3))
+
+boxplot(california_housing$Median_House_Value, main = 'Median House Value')
+
+boxplot(california_housing$Median_Income, main = 'Median Income ($10k)')
+
+boxplot(california_housing$Population, main = 'Population')
+
+par(op4)
+
+```
+(Figure 1:Boxplots of the Median House Value, Median Income, and Population variables)\
+
+Binary Distributions:\
+
+Below is the relationship between a block's proximity to a top 4 big city in California, and its Median House Value, Median House Age, and Median Income:
+
+```{r sideboxplot, echo=FALSE, fig.width=10, fig.height=4}
+op3 <- par(mfrow=c(1,3))
+california_housing$near_top4_big_city = factor(california_housing$near_top4_big_city, levels = c('close', 'somewhat close', 'somewhat far', 'far'))
+
+boxplot(Median_House_Value ~ near_top4_big_city, california_housing,
+        xlab = "Proximity to Big City", ylab = "Median House Value", cex.axis = 0.6)
+
+boxplot(Median_Age ~ near_top4_big_city, california_housing,
+        xlab = "Proximity to Big City", ylab = "Median Age", cex.axis = 0.6)
+
+boxplot(Median_Income ~ near_top4_big_city, california_housing,
+        xlab = "Proximity to Big City", ylab = "Median Income", cex.axis = 0.6)
+
+par(op3)
+```
+(Figure 2: A block's proximity to a big city vs. its Median House Value, Median Age, and Median Income)\
+Houses that are very close to city centers tend to be newer according to this graph.\
+Interestingly, people who are 'close' to city centers are associated with lower median house value and income than those who live 'somewhat close' or 'somewhat far'. This may be attributed to urban sprawl and the diffusion of people with money from urban centers into the suburbs. 
+
+```{r, echo=FALSE, fig.width=9, fig.height=4}
+op1 <- par(mfrow=c(1,2))
+
+boxplot(Median_House_Value~north_south_CA, california_housing,
+        xlab = "NorCal or SoCal", ylab = "Median House Value")
+
+boxplot(Median_Income~north_south_CA, california_housing,
+        xlab = "NorCal or SoCal", ylab = "Median Income")
+par(op1)
+```
+(Figure 3 : Comparing Median House Value and Median Income in Northern and Southern California)\
+There is no obvious difference between Northern California and Southern California in terms of median house value and median income, they have similar statistical properties.
+
+```{r, fig.width=8, fig.height=4}
+op6 <- par(mfrow=c(1, 2))
+
+plot(california_housing$Median_Income, california_housing$Median_House_Value, 
+     main = "Median House Value vs. Median Income",
+     xlab = "Median Income (10k$)", ylab="Median House Value ($)", type = "p",
+     xlim=c(1,10))
+
+plot(california_housing$Median_Age, california_housing$Median_House_Value, 
+     main = "Median House Value vs. Median Age",
+     xlab = "Median Age (years)", ylab="Median House Value ($)", type = "p")
+par(op6)
+```
+(Figure 4 : How do Median Income and Median Age impact Median House Value)\
+It seems that there's a linear relationship between Median House Value and Median Income. \
+However, there seems to be no relationship between Median House Value and Median Age. 
+ 
+
+
+```{r, fig.width=8, fig.height=3}
+op5 <- par(mfrow=c(1,4))
+plot(california_housing$Tot_Rooms, california_housing$Median_House_Value, 
+     main = "Median House Value vs. Tot Rooms",
+     xlab = "Median Age (years)", ylab="Tot Rooms", type = "p",
+     xlim=c(1,6000))
+
+plot(california_housing$Tot_Bedrooms, california_housing$Median_House_Value, 
+     main = "Median House Value vs. Tot Bedrooms",
+     xlab = "Median Age (years)", ylab="Tot Bedrooms", type = "p",
+     xlim=c(1,1500))
+
+plot(california_housing$Population, california_housing$Median_House_Value, 
+     main = "Median House Value vs. Population",
+     xlab = "Median Age (years)", ylab="Population", type = "p",
+     xlim=c(1,4000))
+
+plot(california_housing$Households, california_housing$Median_House_Value, 
+     main = "Median House_Value vs. Households",
+     xlab = "Median Age (years)", ylab="Households", type = "p",
+     xlim=c(1,1200))
+par(op5)
+```
+(Figure 5 :Relationship Between Median Age and Four Other Variables)\
+
+Intuitively, these four scatter plots share the same pattern, which suggests a relationship between the four response variables.
+Therefore, Total Rooms, Total Bedrooms, Population, and Households should be considered together.
+
+Below is the plot to show this more clearly.
+```{r, fig.width=10}
+op4 <- par(mfrow=c(1,2))
+plot(california_housing$Tot_Bedrooms, california_housing$Tot_Rooms, 
+     main = "Tot_Rooms vs. Tot_Bedrooms",
+     xlab = "Tot_Bedrooms", ylab="Tot_Rooms", type = "p")
+plot(california_housing$Households, california_housing$Population, 
+     main = "Population vs. Households",
+     xlab = "Households", ylab="Population", type = "p")
+par(op4)
+```
+(Figure 6 : Correlation between Total Rooms and Total Bedrooms, as well as between Populations and Households)\
+From the graph's slope, we can see that\
+Tot_Rooms = 4 * Tot_Bedrooms\
+Population = 2 * Households

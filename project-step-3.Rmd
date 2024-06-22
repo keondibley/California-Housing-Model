@@ -1,0 +1,205 @@
+---
+title: "step3"
+author: "Lucy Zhao & Keon Dibley"
+date: "2023-12-03"
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r setup, include = FALSE}
+# default code chunk options
+knitr::opts_chunk$set(echo = F,
+                      results = 'hide',
+                      message = F, 
+                      warning = F)
+# load packages
+library(tidyverse)
+library(utils)
+library(base)
+library(dplyr)
+library(graphics)
+library(knitr)
+library(faraway)
+library(tidymodels)
+library(modelr)
+```
+
+We randomly select 200 observations as train data and 50 observations as test data.
+```{r data set up}
+#train <- read.csv("126/project/data/california_housing.csv")
+#total_data <- read.csv("126/project/data/ca_500.csv")
+#total <- total_data[!(total_data$Distance_to_coast %in% train$Distance_to_coast),]
+#test <- sample_n(total, 50)
+#train$Min_Distance<-with(train,pmin(Distance_to_LA, 
+#                                    Distance_to_SanDiego,
+#                                    Distance_to_SanFrancisco,
+#                                    Distance_to_SanJose))
+#test$Min_Distance<-with(test,pmin(Distance_to_LA, 
+#                                  Distance_to_SanDiego,
+#                                  Distance_to_SanFrancisco,
+#                                  Distance_to_SanJose))
+#write.csv(train, "126/project/data/train.csv",row.names = FALSE)
+#write.csv(test, "126/project/data/test.csv",row.names = FALSE)
+train <- read.csv("C:/Users/Keon School/Downloads/step3/step3/data/train.csv")
+test <- read.csv("C:/Users/Keon School/Downloads/step3/step3/data/test.csv")
+```
+
+
+## 1. Choose two fitted model
+From step1&2: \
+**Highly correlated** : "Households,Population,Tot_Bedrooms,Tot_Rooms". \
+**Log** : Consider taking log for predictors which has large values, like"Median_House_Value, Min_Distance, Distance_to_coast".\
+**interaction term** : **Median_Income:Median_Age** might be possible because people's median income will to some degree decide the age of the house they want to buy.\
+```{r}
+fit1 <- lm(log(Median_House_Value) ~ Median_Income + log(Min_Distance) + Longitude + north_south_CA  + Median_Age + Median_Income:Median_Age, train)
+summary(fit1)
+```
+
+```{r}
+fit2 <- lm(log(Median_House_Value) ~ poly(Median_Income,2) + log(Min_Distance) + log(Distance_to_coast) + Median_Age, train)
+summary(fit2)
+```
+
+
+We fit two models(fit1 and fit2).\
+**fit1**: $\hat{ln(MedianHouseValue)} = -10.1 + 0.254*MedianIncome - 0.194*ln(MinDistance) -0.19*Logitude + 0.734*I(northsouthCA=SOCAL) + 0.0138*MedianAge - 0.00289*MedianIncome*MedianAge$ \
+**Adjusted R-squared = 0.733, $\hat{\sigma}$ = 0.321, # of predictors = 6**\
+
+**fit2** :$\hat{ln(MedianHouseValue)} = -14.894 + 4.663*MedianIncome -1.491*MedianIncome^2 -0.125*ln(MinDistance) -0.162*ln(Distancetocoast) + 0.004*MedianAge$ \
+**Adjusted R-squared = 0.748, $\hat{\sigma}$ = 0.312, # of predictors = 5**\
+
+Obviously, fit 2 is a better model, since it has higher Adjusted R-squared, lower $\hat{\sigma}$ and lower # of predictors which can make model simplier.
+
+
+## 2. Use Forward selection using p-values
+Start from only intercept, let $\alpha = 0.10$ be stopping criteria.
+```{r}
+
+mod0 <- lm(log(Median_House_Value) ~ 1, train)
+add1(mod0, ~.+poly(Median_Income,2) + log(Min_Distance) + log(Distance_to_coast) + Median_Age, test = "F")
+
+mod1 <- update(mod0, ~.+poly(Median_Income,2))
+add1(mod1, ~.+ log(Min_Distance) + log(Distance_to_coast) + Median_Age, test = "F")
+
+mod2 <- update(mod1, ~.+log(Distance_to_coast))
+add1(mod2, ~.+ log(Min_Distance) + Median_Age, test = "F")
+
+mod3 <- update(mod2, ~.+log(Min_Distance))
+add1(mod3, ~. + Median_Age, test = "F")
+
+
+
+```
+
+
+Till end, p-value always smaller than 0.10, so the full model fit2 is the best choice.
+
+
+## 3. Justify chosen model
+**fit2 :**
+```{r, results = 'markup'}
+coef(summary(fit2))
+```
+**R-squared**:  0.754\
+**Adjusted R-squared**:  0.748\
+**Partial F test** for each coefficient estimate: all p-value smaller than 0.05\
+**Global F test** for the model: p-value smaller than 0.05(<2e-16).\
+Very small p-value illustrates that the model is well fitted.\
+
+Use residual vs fitted values and predictors to double check:
+```{r, fig.align = 'center'}
+augment(fit2, train) %>%
+  pivot_longer(cols = c(.fitted, Median_Income, Min_Distance, Distance_to_coast, Median_Age)) %>%
+  ggplot(aes(y = .resid, x = value)) +
+  facet_wrap(~ name, scales = 'free_x') +
+  geom_point() +
+  geom_hline(aes(yintercept = 0)) +
+  geom_smooth(method = 'loess', formula = 'y ~ x', se = F, span = 1)
+```
+
+(Figure 1: Residuals vs fitted values and predictors of model fit2)\
+In these residual plots, the points are scattered randomly around the residual=0 line, so all these estimates are unbiased.\
+Most plots have constant variance. ResSidual vs Distancetocoast and MinDistance seems to have changed variance as value of predictors grow, but this is because the number of observations decreases as value of predictors grow. In conclusion, the model is fitted well.
+
+
+
+
+## 4. Interpret coefficients
+From the above output, all coefficients are significant.\
+**$\beta_0$** : Mean of ln(MedianHouseValue) when all other predictor variable values are 0.\
+**$\beta_1$** : Change in ln(MedianHouseValue) when Median_Income changes in one unit while holding other variables in the model constant.\
+**$\beta_2$** : Change in ln(MedianHouseValue) when Median_Income^2 changes in one unit while holding other variables in the model constant.\
+**$\beta_3$** : Change in ln(MedianHouseValue) when log(Min_Distance) changes in one unit while holding other variables in the model constant.\
+**$\beta_4$** : Change in ln(MedianHouseValue) when log(Distance_to_coast) changes in one unit while holding other variables in the model constant.\
+**$\beta_5$** : Change in ln(MedianHouseValue) when Median_Age changes in one unit while holding other variables in the model constant.\
+
+
+
+## 5. R square on test data
+```{r}
+beta_hat <- coef(summary(fit2))[,1]
+x <- cbind(rep(1,50),train$Median_Income,train$Median_Income,train$Min_Distance,
+           train$Distance_to_coast,train$Median_Age)
+x[,3]=x[,3]^2
+x[,4]=log(x[,4])
+x[,5]=log(x[,5])
+y_hat <- x %*% beta_hat
+y <- log(test$Median_House_Value)
+SS_Res <- t(y - y_hat) %*% (y - y_hat)
+SS_T <- t(y - mean(y)) %*% (y - mean(y))
+R_2 <- 1 - SS_Res / SS_T
+R_2_adj <- 1 - (SS_Res/194) / (SS_T/199)
+```
+
+**$R^2$ on test data** : -12380 \
+**Adjusted $R^2$ on test data** : -12699 \
+It's much more small than 0 because $SS_{Res}$ is much more larger than $SS_{T}$ on test data. \
+The variability explained by the model fit2 is 74.8% (Adjusted $R^2$ on train data) \   
+So a high $R^2$ can not always guanrantee that the model will accurately describe the population, since sometimes model assumption fail for some observations.
+
+
+
+## 6. Case influence statistics
+```{r}
+p_caseinf <- augment(fit2, train) %>%
+  pivot_longer(cols = c(.std.resid, .hat, .cooksd)) %>%
+  mutate(obs_index = row_number()) %>%
+  ggplot(aes(x = obs_index, y = value)) +
+  facet_wrap(~ name, scales = 'free_y', nrow = 3) + # looks better with vertical faceting
+  geom_point() +
+  geom_hline(aes(yintercept = 0)) + # add line at zero
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.25)) + # rotates and aligns labels
+  labs(x = '', y = '') 
+p_caseinf
+```
+
+(Figure 2 : Cook's Distance, $h_{ii}$, Internally Studentized Residual of each observation) \
+Leverage points: $h_{ii}$ > 2(p+1)/n = 0.06  (No leverage point) \
+Outliers: Internally Studentized Residual > 3  (Only one outlier) \
+Influential points : Cook's Distance > 4/n = 0.02 \
+The only outlier is not influential, so we don't need to re-fit a model without some certain data.
+
+
+## 7. Interpretation of the final model
+Our task is to estimate the MeanHouseValue of a block given some variables values.\
+There are many different variables provided in the raw data set.\
+
+**Reasons for variables dropout**: \
+some variables are highly correlated, so one can taken place of some or all the other ones(like "longitude and distancetocoast");\
+some variables are randomly distributed, having no relationship with response variable.
+
+**Reasons for variables significant**:\
+Intuitively have a obvious relationship with house value;\
+Has a better way to illustrates house value.
+
+**Interpret our final model**:
+
+
+
+
+
+## 8. Prediction
+
+
+## 9. Summary
+

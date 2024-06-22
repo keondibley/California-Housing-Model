@@ -1,0 +1,318 @@
+---
+title: 'Project Step 4: Beyond the Linear Model'
+author: "Keon Dibley & Lucy Zhao"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+# default code chunk options
+knitr::opts_chunk$set(echo = F,
+                      results = 'hide',
+                      message = F, 
+                      warning = F)
+# load packages
+library(tidyverse)
+library(utils)
+library(base)
+library(dplyr)
+library(graphics)
+library(knitr)
+library(faraway)
+library(tidymodels)
+library(modelr)
+library(MASS)
+library(glmnet)
+library(corrplot)
+library(clusterSim)
+library(pls)
+```
+
+Dataset: [California Housing Prices Data
+Source: Kaggle](https://www.kaggle.com/datasets/fedesoriano/california-housing-prices-data-extra-features)
+
+(We randomly select 200 observations as train data and 50 observations as test data.)?
+
+Our data set includes California Housing data, with some relevant variables being **Median_Income**, **Population**, and **Distance_to_LA**. We are using **Median_House_Value** as a response variable and other variables as predictors. Each observation in our data set is a block of California Houses, 
+
+Our data set has **1 response variable**, **14 quantitative variables**(we create "Min_Distance" which equals to the min among distances to the 4 cities) and **2 categorical variables**(which we created). Each observation represents a block of California houses and has attributes like the median house value of that block, its median income, and the population of the block. From this dataset, we chose **Median_House_Value** as the response variable and used other variables as predictors to predict Median_House_Value.
+
+
+
+
+```{r}
+california_housing <- read.csv("C:/Users/Keon School/Downloads/california_housing_200.csv")
+train <- read.csv("C:/Users/Keon School/Downloads/step3/step3/data/train.csv")
+test <- read.csv("C:/Users/Keon School/Downloads/step3/step3/data/test.csv")
+```
+
+Set seed for reproducibility, get training/testing data:
+
+```{r}
+set.seed(5655)
+```
+
+
+## Ridge and Lasso Regression:
+
+### Lasso:
+
+```{r}
+y <- california_housing$Median_House_Value
+x <- scale(data.matrix(california_housing[, -1]))
+cv_model <- cv.glmnet(x, y, alpha = 1)
+#optimal lambda value that minimizes test MSE
+best_lambda <- cv_model$lambda.min
+best_lambda
+
+
+```
+Using Cross Validation, I found $\lambda$ to be 148.2306. In the graph below, this value corresponds roughly to the value of $Log(\lambda)$ that minimizes MSE.
+```{r, fig.width=5, fig.height=3.5, fig.align='center'}
+par(mar = c(7, 4, 2.2, 0.5))
+plot(cv_model, cex=0.8)
+
+```
+
+
+
+
+
+```{r, results='markup', comment=NULL}
+best_model <- glmnet(x, y, alpha = 1, lambda = best_lambda)
+#coef(best_model)
+```
+
+Final MLR Model from Step 3: $\hat{\text{ln(MedianHouseValue)}} = -14.894 + 4.663*\text{MedianIncome} -1.491*\text{MedianIncome}^2 -0.125*\text{ln(MinDistance)} -0.162*\text{ln(Distancetocoast)} + 0.004*\text{MedianAge}$ \
+
+Lasso Regression Model: $\text{MedianHouseValue} = 215140 + 74617 * \text{MedianIncome} + 21995 * \text{Median_Age} + 9356 * \text{Tot_Rooms} - 8664 * \text{Tot_Bedrooms} - 71999  * \text{Population} + \dots + 1356 * \text{near_top4_big_city}$ \
+
+When we changed the value of $\lambda$, we found that Lasso Regression shrinks most of the coefficients as $\lambda$ increases, punishing the relevant ones less, and even increasing the value of the most important coefficients, Median_Income and Distance_to_coast.\
+
+When comparing Lasso Regression to our MLR model, we found that our model uses many fewer variables, and much smaller coefficients. This is interesting because we thought that Lasso Regression would impact our less relevant variables more, but this is very dependent on the value of $\lambda$. 
+
+
+
+### Ridge: 
+
+```{r, results='markup', comment=NULL}
+#par(mar = c(2, 2, 0.5, 0.5))
+california_housing$north_south_CA <- as.numeric(as.factor(california_housing$north_south_CA))
+california_housing$near_top4_big_city <- as.numeric(as.factor(california_housing$near_top4_big_city))
+california_housing <- scale((california_housing), center = TRUE, scale = FALSE)
+california_housing <- as.data.frame(california_housing)
+ridgemod <- lm.ridge(Median_House_Value ~ ., california_housing, lambda = seq(0,100, len=100))
+
+#matplot(ridgemod$lambda, coef(ridgemod), type="l", xlab ="lambda", ylab = "Beta hat", cex=0.8)
+
+a <- which.min(ridgemod$GCV)
+#a
+#coef(ridgemod)[a,]
+#as.data.frame(ridgemod$lambda)
+#as.data.frame(coef(ridgemod))
+#as.data.frame(ridgemod$GCV)
+```
+
+RR Model: $\text{MedianHouseValue} = 0 + 36046*\text{MedianIncome} + 1848*\text{Median_Age} + 8.08*\text{Tot_Rooms} - 49*\text{Tot_Bedrooms} - 78 *\text{Population} + \dots + 391*\text{near_top4_big_city}$ \
+
+In Ridge Regression, $\lambda$ = 0 causes the GCV to be lowest. This is saying that the Ridge Regression doesn't reduce our coefficients at all from OLS. In this data set, there are many more samples than predictors, which validates the use of a more complex model.\
+
+Compared to our MLR model, the Ridge Regression model uses more predictors, which is typical of Ridge Regression. Some of its coefficients are still large, but most are much smaller than Lasso Regression's corresponding coefficients.\
+
+### Graph of observed response vs predicted response
+```{r, fig.align='center', fig.height=5, fig.width=7}
+best_MLR <- lm(log(Median_House_Value) ~ poly(Median_Income,2) + log(Min_Distance) + log(Distance_to_coast) + Median_Age, train)
+test[, "north_south_CA"] <- factor(test[, "north_south_CA"]) %>% as.numeric()
+test[, "near_top4_big_city"] <- factor(test[, "near_top4_big_city"]) %>% as.numeric()
+
+options(scipen = 999)
+
+# observed response
+x <- test[, "Median_House_Value"]
+
+# predicted responses
+predictors <- test %>% dplyr::select(-Median_House_Value, -Min_Distance) %>% as.data.frame()
+predictors_MLR <- data.frame(test[, "Median_Income"], test[, "Median_Income"]^2, log(test[, "Min_Distance"]), log(test[, "Distance_to_coast"]), test[, "Median_Age"])
+#predictors_MLR
+
+y1 <- predict(best_MLR, test)
+y1 <- exp(1)^(y1)
+y_RR <- as.matrix(cbind(const=1, predictors)) %*% coef(ridgemod)[a,]
+y_Lasso <- as.matrix(cbind(const=1, predictors)) %*% coef(best_model)
+
+#y1
+#y_RR
+#y_Lasso
+
+y <- cbind(y1, y_RR, y_Lasso)
+
+
+# graph
+ggplot(data = test, mapping = aes(x = x)) + 
+  geom_point(aes(y=y[, 1], color="MLR")) + 
+  geom_point(aes(y=y[, 2], color="Ridge")) + 
+  geom_point(aes(y=y[, 3], color="Lasso")) + 
+  coord_cartesian(ylim=c(0,1000000))
+
+
+```
+
+Lasso Regression's predictions are all so high, they cannot be shown on the graph. This is likely due to the high lambda value chosen through cross validation, which shrinks the variance, but creates a very high bias. \
+
+Both our MLR and Ridge models have low variances in prediction, but our MLR model is much more unbiased, with the observed response values matching up fairly well with the predicted response. \
+
+
+
+
+### Conclusion
+
+
+Overall, we executed Lasso and Ridge Regression to try to shrink the variance of our model, while keeping it as unbiased as possible. We found that Ridge Regression was a much more effective method for our data set, but our MLR model from Step 3 proved to be the best at predicting accurately without large variability. We were surprised by the ineffectiveness of Lasso Regression, and we hope to find more ways to decrease the variance of our model through future investigation. \
+
+
+
+## Innovation: Principal Component Regression
+
+Principal Component Regression (PCR) is used to reduce the number of predictors in a model, creating Principal Components that act as regressors, but are linear combinations of the original predictors. \
+
+We thought this technique would be suitable for our dataset because we have many predictors that are heavily related to each other, such as Distance_to_LA, Distance_to_SanFrancisco, Distance_to_SanJose, and Distance_to_SanDiego. Another goal of PCR is to get rid of colinearities, which we think exist in our data due to correlatedness of some of the variables we just mentioned. \
+
+We thought PCR could help us see how our predictors interact with one another in our data, and that this could help us explain our response variable, Median_House_Value. \
+
+First, we examined the correlation between our predictors through a correlation plot:
+
+
+
+
+```{r, fig.height=3, fig.width=3, fig.align='center'}
+train.MHV <- train$Median_House_Value
+train$Median_House_Value <- NULL
+train[, "north_south_CA"] <- factor(train[, "north_south_CA"]) %>% as.numeric()
+train[, "near_top4_big_city"] <- factor(train[, "near_top4_big_city"]) %>% as.numeric()
+res <- cor(train, method="pearson")
+corrplot::corrplot(res, method= "color", order = "hclust", tl.pos = 'n')
+
+
+```
+\
+
+Here, we see significant correlation between some of our variables, with the darker blue and red areas that aren't on the diagonal representing higher correlations. \
+
+
+Next, we normalize the data, because Principal Component Analysis (PCA) is sensitive to data that hasn't been centered. 
+```{r}
+train.norm <- data.Normalization(train, type="n1", normalization="column")
+train.y.norm <- data.Normalization(train.MHV, type="n1", normalization="column")
+test.norm <- data.Normalization(test, type="n1", normalization="column")
+```
+\
+
+
+### PCA (Principal Component Analysis)
+
+We performed PCA on our data set and found 16 different components for our model. Then, we want to reduce this reduce the number of components while still maintaining as much of the original variance as possible. \
+
+
+
+
+```{r}
+
+train.pca1 <- prcomp(train.norm, center=TRUE, scale.=TRUE)
+summary(train.pca1)
+```
+\
+
+Say I want to maintain at least 90% of the original variance. According to the below graph, and a summary we created in R, we then should reduce our components down from 16 to >= 6. This suggests that there is a good amount of scope to reduce the dimensionality of our model. \
+
+```{r, fig.align='center'}
+
+plot(summary(train.pca1)$importance[3,]) #shows what percent of variance has been explained for each number of principal components.
+
+```
+
+Another important point about the components is that they are always orthogonal, so there is no correlation whatsoever between them. This can be seen in the correlation plot below, where the only correlation seen is actually autocorrelation.
+
+
+
+```{r}
+
+#train.pca1$x [,1:6] %>% head(1)
+
+res1 <- cor(train.pca1$x, method="pearson")
+corrplot::corrplot(res1, method= "color", order = "hclust", tl.pos = 'n') # principal components are orthogonal, thus there is no correlation, apart from autocorrelation.
+
+```
+
+### Regression with PCs
+
+Below are a couple of scatterplots showing the association between the PCs and Median_House_Value. PC3 has a high correlation with Median_House_Value, while PC4 doesn't. 
+
+```{r, fig.height=4, fig.width=8, fig.align='center'}
+op <- par(mfrow=c(1,2))
+
+pcs <- as.data.frame(train.pca1$x)
+#plot(train.y.norm, pcs$PC1)
+#plot(train.y.norm, pcs$PC2)
+plot(train.y.norm, pcs$PC3)
+plot(train.y.norm, pcs$PC4)
+#plot(train.y.norm, pcs$PC5)
+#plot(train.y.norm, pcs$PC6)
+
+par(op)
+
+```
+\
+
+We then fitted three different linear models to Median_House_Value and our Principal Components. One was a full model, which included all 16 components. Our second model maximized adjusted R^2 and used 11 components (PC2, PC3, PC5, PC6, PC7, PC8, PC9, PC10, PC13, PC15, and PC16). Our third model used the first 6 components (PC1 - PC6), because we can capture 90% of the original variance with only these 6 predictors. \
+
+Model 1: 16 predictors, R^2 = 0.7495, adj R^2 = 0.7276\
+Model 2: 11 predictors, R^2 = 0.7475, adj R^2 = 0.7327\
+Model 3: 6 predictors, R^2 = 0.5923, adj R^2 = 0.5796\
+
+```{r}
+ols.data <- cbind(train.y.norm, pcs)
+
+pcmodel <- lm(train.y.norm ~ ., data = ols.data) # full model with all components
+summary(pcmodel)
+
+pcmodel_1 <- lm(train.y.norm ~ PC2 + PC3 + PC5 + PC6 + PC7 + PC8 + PC9 + PC10 + PC13 + PC15 + PC16, data = ols.data) # model that maximizes adj R^2
+summary(pcmodel_1)
+
+pcmodel_2 <- lm(train.y.norm ~ PC1 + PC2 + PC3 + PC4 + PC5 + PC6, data = ols.data) #model that uses first 6 components, captures 90% of the original variance
+summary(pcmodel_2)
+
+```
+\
+
+Out of these three models, we found that model 2, which maximized adjusted R^2, was the best model, because it gave the highest adj R^2 value while also having 5 fewer predictors than the full model. \
+
+\
+
+To make sure we were choosing an appropriate number of PCs, we examined a graph which used cross validation to plot the increase in R^2 as we increase the number of components in our model. 
+
+```{r}
+fit2 <- pcr(train.y.norm ~., data = cbind(train.norm, train.y.norm), validation="CV")
+
+validationplot(fit2, val.type="R2", cex.axis=0.7)
+axis(side = 1, at = c(6), cex.axis=0.7)
+abline(v = 6, col = "blue", lty = 3)
+
+```
+
+In examining this graph, we found that the most dramatic change in R^2 occurred when we used 6 PCs. When we examined a model with 6 PCs, we found that we still preferred our model with 11 PCs due to its higher adj R^2, but both both models are valuable, depending if you want a model with fewer predictors or higher R^2. \
+
+
+This new method was very interesting to try out, and I'm pleased to say that we found a model that is comparable in accuracy and variability to our step 3 MLR model.
+
+
+
+
+
+
+
+
+
+

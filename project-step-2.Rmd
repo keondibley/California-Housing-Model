@@ -1,0 +1,244 @@
+---
+title: "project_step_2"
+author: "Lucy Zhao & Keon Dibley"
+date: "2023-11-05"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+```{r setup, include = FALSE}
+# default code chunk options
+knitr::opts_chunk$set(echo = F,
+                      results = 'markup',
+                      message = F, 
+                      warning = F)
+# load packages
+library(tidyverse)
+library(plotly)
+library(skimr)
+library(utils)
+library(base)
+library(dplyr)
+library(graphics)
+library(knitr)
+library(faraway)
+library(tidymodels)
+library(modelr)
+```
+
+
+Dataset: [California Housing Prices Data Source: Kaggle](https://www.kaggle.com/datasets/fedesoriano/california-housing-prices-data-extra-features)
+
+```{r}
+#ca_500 <- read.csv("data/ca_500.csv")
+#set.seed(1)
+#california_housing <- sample_n(ca_500, 200)
+#california_housing
+#write.csv(california_housing, "data/california_housing.csv",row.names = FALSE)
+
+california_housing <- read.csv("C:/Users/Keon School/Downloads/california_housing_200.csv")
+
+```
+
+The processed dataset **california_housing** has **200 observations**, **1 response variable**, **13 quantitative variables** and **2 categorical variables**(which we created). Each observation represents a block of California houses and has attributes like the median house value of that block, its median income, and the population of the block. From this dataset, we chose **Median_House_Value** as the response variable and used other variables as predictors to predict Median_House_Value.
+
+$$\\[0.1in]$$
+
+Also, The raw dataset only includes quantitative variables and some of these variables are too detailed, like latitude and distance to LA/SD/SJ/SF, so we set a standard to classify different values into different levels. For example, we classified all the observations into north/south CA according to latitude. Later on, we'll dive into whether using the raw data or using the level after assignment can better fit a model.(For categorical variables "north_south_CA" & "near_top4_big_city", we gave them assignments according to their level.)
+
+$$\\[0.3in]$$
+
+But in this step, we will only explore the SLM for each quantitative predictor: $$Y = \beta_0 + \beta_1x$$
+
+We tested the hypothesis below for the significance of each variable as a predictor of Median House Value.:
+   
+   - $H_0: \beta_1 = 0$
+   
+   - $H_a: \beta_1 \neq 0$
+
+Then, we need to find $\hat{\beta_1}$,and (1-$\alpha$)CI for $\hat{\beta_1}$, if $\hat{\beta_1}$ falls into CI, then the corresponding variable is not significant. Also, we list $R^2$ to show the proportion of variance in the response explained by the model. Below is the table showing the info above (we set $\alpha=0.05$).
+
+$$\\[0.1in]$$
+
+```{r}
+beta_df <- data.frame(colnames(california_housing)[2:14],
+                      rep(0,13),rep(0,13),rep(0,13),rep(0,13),rep(0,13))
+names(beta_df) <- c("Predictor", "Estimate", "CI-lwr", "CI-upr", "If significant", "R^2")
+t_alpha <- qt(0.025, df=198, lower.tail=F)
+x <- rep(0,13)
+for (i in 1:13){
+  fit <- lm(Median_House_Value ~ california_housing[,i+1], california_housing)
+  betahat <- coefficients(summary(fit))[2,1]
+  se_betahat <- coefficients(summary(fit))[2,2]
+  CI_lwr = - t_alpha * se_betahat
+  CI_upr = + t_alpha * se_betahat
+  ifsignificant <- ifelse((betahat > CI_upr) |
+                          (betahat < CI_lwr),
+                           "Yes",
+                           "No")
+  beta_df[i,2]=round(betahat, 2)
+  beta_df[i,3]=round(CI_lwr, 2)
+  beta_df[i,4]=round(CI_upr, 2)
+  beta_df[i,5]=ifsignificant
+  beta_df[i,6]=round(summary(fit)$r.squared, 2)
+}
+  
+kable(beta_df, caption = "Estimation of each SLM")
+
+```
+
+With this table, we find that Median Income, Distance to Coast, Median Age, and Longitude, are significant variables at $\alpha = 0.05$. However, Median Age and Longitude have very low R-squared values, so they are not very useful in explaining the variance of the response variable. If we set $\alpha = 0.025$, these predictors are not significant, while Median Income and Distance to Coast still are. This suggests a linear relationship between Median Income and Median House Value, as well as between Distance to Coast and Median House Value.
+
+
+Many of the other predictors are not significant, but it doesn't mean they don't have a relationship with the response. So what's quite important is that we neeed to look at the scatter plots of each predictor and the response, then we can transform each predictor to better fit their relationship with the Median House Value.
+
+Through the scatter plots, we can see the groups below share similar relationships with response variable, so later we can use similar transforms on predictor variables within a group. This also indicates that predictors within a group might be dependent.\
+(1)Tot_Rooms & Tot_Bedrooms & Population & Households\
+(2)Latitude & longitude & Distance to LA/SD/SJ/SF(they all have 2 or 3 peeks in the plots)\
+
+We only show 5 of all the quantitative predictors.
+```{r, fig.align='center'}
+op <- par(mfrow=c(2,3))
+for (i in c(1,2,3,9,10)){
+  plot(california_housing[,i+1], california_housing[,1],
+       xlab = colnames(california_housing)[i+1],
+       ylab = "Median_House_Value")
+}
+par(op)
+```
+(Figure 1: Median_House_Value vs 5 different predictors)
+
+About how to transform each predictor, we also need to focus on residuals vs predictor of each SLM, which is showed below.
+
+```{r, fig.height=6, fig.width=6}
+augment(fit, california_housing) %>%
+  pivot_longer(cols = c(Median_Income, Median_Age, Tot_Rooms, Tot_Bedrooms, Population,   Households, Latitude, Longitude, Distance_to_coast, Distance_to_LA, Distance_to_SanDiego, Distance_to_SanJose, Distance_to_SanFrancisco)) %>%
+  ggplot(aes(y = .resid, x = value)) +
+  facet_wrap(~ name, scales = 'free_x') +
+  geom_point() +
+  geom_hline(aes(yintercept = 0)) +
+  geom_smooth(method = 'loess', formula = 'y ~ x', se = F, span = 1)
+```
+
+(Figure 2: Residuals vs all predictors)
+
+
+All the predictors can be transformed and then check whether it turns into significant or whether $R^2$ of the model increase. Here we just take one as an example.
+
+We can see from the residual that each predictor in group(2)(ie. distance to LA/SD/SF/SJ) might can be transformed to a cubic equation to better fit model with the response variable.
+
+But when we start to work on distance to LA, we find as the degree of polynomial grows, $R^2$ grows as well, this is amazing and we think of Taylor series to explain it. Since many functions about x can be written into Taylor series(ie.$f(x)=\sum^{\infty}_{k=0}a_kx^k$), so when the degree of polynomial grows, it's more similar to Taylor series, thus can better explain y, thus has higher $R^2$.
+
+What we are doing above is to find $f(x)$ which we transform x into, then $\hat{y}=f(x)\hat{\beta}$. Then we draw residual vs predictor distance to la again to see what's different(showed below).
+
+
+```{r}
+p =13
+fit <- lm(Median_House_Value ~ poly(Distance_to_LA, p, raw = T), california_housing)
+betahat <- coefficients(summary(fit))[,1]
+x <- matrix(0,nrow = 200, ncol = p+1)
+x[,1] <- rep(1,200)
+for(i in 2:p+1){
+  x[,i] = (california_housing$Distance_to_LA)^(i-1)
+}
+y_hat <- x%*%betahat
+plot(california_housing$Distance_to_LA, california_housing$Median_House_Value - y_hat,
+     xlab = "Distance_to_LA",
+     ylab = "Residual")
+abline(a=0, b=0,col="red")
+```
+
+(Figure 3: Residual vs Distance to LA after transformation )
+
+```{r}
+fit1 <- lm((california_housing$Median_House_Value - y_hat) ~ california_housing$Distance_to_LA)
+# summary(fit1)
+```
+
+```{r}
+
+fit_log <- lm(log(Median_House_Value) ~ poly(Distance_to_LA, 13, raw = T), data = california_housing)
+
+summary(fit_log)
+
+#adj R^2 = 0.3874
+# as we increase the value of the base of the log of the response, the residual standard error decreases, but R^2 stays the same. 
+
+```
+
+
+
+
+```{r}
+### randomly select new obs, new_obs
+#set.seed(56556)
+new_obs_full <- sample_n(california_housing, 1)
+new_obs <- new_obs_full %>% select(-Median_House_Value, -north_south_CA, -near_top4_big_city)
+
+### remove new obs
+california_housing <- california_housing %>% slice(-as.numeric(rownames(new_obs)))
+```
+
+
+```{r}
+
+### mean values of all predictors 
+
+
+new.dat <- data.frame(speed=30)
+new.dat
+```
+
+
+```{r}
+
+### create prediction for average response
+predict_df <- data.frame(colnames(california_housing)[2:14], rep(0, 13), rep(0, 13), rep(0, 13), rep(0, 13))
+names(predict_df) <- c("Predictor", "Mean Prediction", "Specific point Prediction", "Mean CI", "Specific point CI")
+for (i in 1:13) {
+  fit <- lm(Median_House_Value ~ california_housing[,i+1], california_housing)
+  mean_est <- c(1, as.numeric(x_bar[i])) %*% coef(fit)
+  mean <- mean_est[1]
+  pred_est <- c(1, as.numeric(new_obs[i])) %*% coef(fit)
+  prediction <- pred_est[1]
+  predict_df[i, 2] <- mean
+  predict_df[i, 3] <- prediction
+}
+
+for (i in 1:13) {
+  mean_ci <- predict(fit, newdata = )
+  
+  
+}
+
+#mean_ci <- predict(fit, newdata = data.frame(x_bar[i]), interval = 'confidence', level = 0.95)
+#point_ci <- predict(fit, newdata = data.frame(new_obs[i]), interval = 'prediction', level = 0.95)
+#Fix mean pred
+predict_df
+```
+
+Through the residual plot, we can see that $y-\hat{y}=ax+\varepsilon$, which means the residual has a perfect linear relationship with predictor $x$. We can include this part into the model of y, then we get $y=ax+f(x)\hat{\beta}+\varepsilon$, so once we figure out the value of $a$(=17.2), we can perfectly fit the model between $y$ and $x$.(In this part, $y$ refers to Median_House_Value, $x$ refers to Distance_to_LA)
+
+Then, distance to the other cities as well as other predictor variables can be transformed through this way. We'll not gonna include here.
+
+
+
+### Concluding Statement:
+
+As statisticians, we need to research further the external factors that impact house value because these quantitative variables don’t fully explain California Housing Value. We are interested in painting a complete picture of California Housing statistics, and we need to examine all contributing factors to do so. 
+
+
+### To-do 
+
+- Review slides (prediction and diagnostics)
+- Review lab5
+- Pick out obs from full dataset for test
+- qqplot predictor vs response to see if we need to do log of response
+
+
+
+
+
+
+
